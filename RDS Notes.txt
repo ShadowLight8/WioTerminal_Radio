@@ -1,0 +1,77 @@
+RDS States
+
+Ignore anything about Block E
+
+0A/15 RDSR - RDS Ready / 0 = No RDS group / 1 = RDS group
+0A/12 RDSS - 0 = RDS syncing / 1 = RDS synced
+0A/11 BLK_E - 0 = No Block E / 1 = Block E found
+0B/3:2 BLERA[1:0] - Block A errors 0 = 0 / 1 = 1-2 / 2 = 3-5 / 3 = 6+
+0B/1:0 BLERB[1:0] - Block B errors 0 = 0 / 1 = 1-2 / 2 = 3-5 / 3 = 6+
+
+RDS Detected - Specific to new RDS data - Toggles a lot
+RDS Sync - Functions as RDS present indicator
+RDS Block A Errors
+RDS Block B Errors
+
+RDS Block 1
+	PI (Program Information Code - Callsign (in US)
+	If > 21672 (First letter W, subtract 21672)
+		Else First letter K, subtract 4096
+	Floor Divide by 676 (Value + 65 = ASC Char 2)
+	Using value MOD 676
+	Floor Divide 26 (Value + 65 = ASC Char 3)
+	Value MOD 26 (Value + 65 = ASC Char 4)
+	Based on https://www.fmsystems-inc.com/rds-pi-code-formula-station-callsigns/
+	
+RDS Block 2
+	Group Code
+	Version Code - 0 = Ver A / 1 = Ver B (Part of Group Type)
+	Traffic prog code - 0 = No traffic info / 1 = Will broadcast traffic info at some point (Groups 0A, 0B, 14B, 15B)
+	PTY [9:5] - Lookup program type
+	Unassigned [4:0] bits
+
+PI, PTY, and TP are valid every group
+
+Groups to Decode
+0A, 0B - PS
+2A, 2B - RadioText
+4A - Time
+
+0A
+Block B
+	PTY [9:5]
+	TA [4] - Traffic Announce
+	M/S [3] - Music/Speech
+	DI Segment [2]?? See 6.2.1.5
+	PS Index [1:0]
+Block C - Alt Freq List
+Block D - PS Name Segment
+
+0B
+	Same as 0A except
+	Block C - PI code
+	
+2A
+Block B
+	Text A/B Flag [4] - When changes, Signal to clear RadioText
+	RT Index [3:0]
+Block C - RT char *2
+Block D - RT char *2
+
+2B
+Same as 2A except
+Block C - PI code
+Blcok D - RT char *2
+
+RT special characters
+	0x0D - Last character of RT
+	0x0A - Line break suggestion
+	0x0B - End of headline (line break)
+	0x1F - Soft hyphen (line break if needed)
+	
+4A
+	Day code - Block B [1:0] + Block C [15:1]
+	Hour code - Block C [0] + Block D [15:12]
+	Minute code - Block D [11:6]
+	Offset - Block D [5] 0=+ 1=- [4:0]
+	
