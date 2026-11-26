@@ -44,7 +44,7 @@ public:
     if (_sendRDS_Ex) _sendRDS_Ex(true, false, 0, 0, 0, 0, 0, 0);
   }
 
-  // Reads status regs 0x0A-0x0B and RDS blocks 0x0C-0x0F in one sequential read.
+  // Reads status regs 0x0A-0x0B, then RDS blocks 0x0C-0x0F only when a group is ready.
   // Falls back to the stock behaviour when only attachReceiveRDS() is used.
   void checkRDS() {
     if (!_sendRDS_Ex) {
@@ -52,18 +52,16 @@ public:
       return;
     }
 
-    // Sequential read always starts at register 0x0A: 6 registers = 12 bytes.
-    uint8_t got = Wire.requestFrom(I2C_SEQ_EX, (uint8_t)12);
-    if (got != 12) {
-      // Chip did not answer: drain what arrived and report "no RDS sync".
-      while (Wire.available()) Wire.read();
-      _report(false, false, 0, 0);
+    // Status: sequential read starts at register 0x0A; 2 registers = 4 bytes.
+    if (Wire.requestFrom(I2C_SEQ_EX, (uint8_t)4) != 4) {
+      _noAnswer();
       return;
     }
     uint16_t regA = _read16_Ex();
     uint16_t regB = _read16_Ex();
-    uint16_t block[4];
-    for (uint8_t i = 0; i < 4; i++) block[i] = _read16_Ex();
+
+    // Block E (RBDS/MMBS only) is not a normal group: skip it, as the original did.
+    if (regA & 0x0800) return;
 
     bool rdsr = regA & 0x8000;
     bool rdss = regA & 0x1000;
@@ -74,9 +72,24 @@ public:
     // below RDS_MAX_BLER_EX), so a clean repeat of a rejected group still
     // counts as new data.
     bool changed = false;
-    if (rdsr && blera < RDS_MAX_BLER_EX && blerb < RDS_MAX_BLER_EX) {
-      for (uint8_t i = 0; i < 4; i++) {
-        if (block[i] != _lastBlock[i]) { _lastBlock[i] = block[i]; changed = true; }
+    if (rdsr) {
+      // Read the blocks (0x0C-0x0F) only when a group is ready, via indexed
+      // access with a repeated start, so a check never reads (and possibly
+      // acknowledges) a group it has not seen flagged as ready.
+      Wire.beginTransmission(I2C_INDX_EX);
+      Wire.write(0x0C);
+      Wire.endTransmission(false);
+      if (Wire.requestFrom(I2C_INDX_EX, (uint8_t)8, (uint8_t)1) != 8) {
+        _noAnswer();
+        return;
+      }
+      uint16_t block[4];
+      for (uint8_t i = 0; i < 4; i++) block[i] = _read16_Ex();
+
+      if (blera < RDS_MAX_BLER_EX && blerb < RDS_MAX_BLER_EX) {
+        for (uint8_t i = 0; i < 4; i++) {
+          if (block[i] != _lastBlock[i]) { _lastBlock[i] = block[i]; changed = true; }
+        }
       }
     }
 
@@ -85,6 +98,7 @@ public:
 
 private:
   static const uint8_t I2C_SEQ_EX = 0x10;  // RDA5807M sequential-access address
+  static const uint8_t I2C_INDX_EX = 0x11; // RDA5807M indexed-access address
   static const uint8_t RDS_MAX_BLER_EX = 2; // BLER 2 (3-5 errors) and up is rejected
   receiveRDSFunction_Ex _sendRDS_Ex;
   uint16_t _lastBlock[4] = {0, 0, 0, 0};
@@ -101,6 +115,12 @@ private:
     _lastErrB = errB;
     _sendRDS_Ex(newData, sync, errA, errB,
                 _lastBlock[0], _lastBlock[1], _lastBlock[2], _lastBlock[3]);
+  }
+
+  // Chip did not answer: drop any partial bytes and report "no RDS sync".
+  void _noAnswer() {
+    while (Wire.available()) Wire.read();
+    _report(false, false, 0, 0);
   }
 
   static uint16_t _read16_Ex() {
