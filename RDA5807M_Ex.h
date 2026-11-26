@@ -2,6 +2,7 @@
 // Extends the stock mathertel Radio library (v1.2.0) RDA5807M driver so the
 // RDS callback also receives the chip's RDS status bits:
 //   rds_ready  - Reg 0x0A bit 15 (RDSR), and the block data changed since last call
+//                (also true on clearRDS_Ex(), which sends all-zero blocks)
 //   rds_sync   - Reg 0x0A bit 12 (RDSS), 1 = RDS decoder synchronized
 //   blockA_err - Reg 0x0B bits 3:2 (BLERA), 0 = 0 errors, 1 = 1-2, 2 = 3-5, 3 = 6+ / uncorrectable
 //   blockB_err - Reg 0x0B bits 1:0 (BLERB), same scale
@@ -34,7 +35,9 @@ public:
   // Tell the extended processor that RDS data is gone (e.g. after tuning).
   void clearRDS_Ex() {
     for (uint8_t i = 0; i < 4; i++) _lastBlock[i] = 0;
-    if (_sendRDS_Ex) _sendRDS_Ex(false, false, 0, 0, 0, 0, 0, 0);
+    // rds_ready=true so the sketch forwards the zero blocks: processData(0,...)
+    // resets RDSParser, and gui_PI(0) / gui_PTY(0) clear the display.
+    if (_sendRDS_Ex) _sendRDS_Ex(true, false, 0, 0, 0, 0, 0, 0);
   }
 
   // Reads status regs 0x0A-0x0B and RDS blocks 0x0C-0x0F in one sequential read.
