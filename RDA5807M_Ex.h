@@ -6,7 +6,8 @@
 //   rds_sync   - Reg 0x0A bit 12 (RDSS), 1 = RDS decoder synchronized
 //   blockA_err - Reg 0x0B bits 3:2 (BLERA), 0 = 0 errors, 1 = 1-2, 2 = 3-5, 3 = 6+ / uncorrectable
 //   blockB_err - Reg 0x0B bits 1:0 (BLERB), same scale
-// The callback runs on every checkRDS() so the sketch can show sync loss.
+// The callback runs on new data and whenever sync or the error levels change,
+// so the sketch still sees sync loss without being called every loop pass.
 // Works with the unmodified Radio library; nothing in Radio-master.zip changes.
 
 #ifndef RDA5807M_EX_H
@@ -35,6 +36,9 @@ public:
   // Tell the extended processor that RDS data is gone (e.g. after tuning).
   void clearRDS_Ex() {
     for (uint8_t i = 0; i < 4; i++) _lastBlock[i] = 0;
+    _lastSync = false;
+    _lastErrA = 0;
+    _lastErrB = 0;
     // rds_ready=true so the sketch forwards the zero blocks: processData(0,...)
     // resets RDSParser, and gui_PI(0) / gui_PTY(0) clear the display.
     if (_sendRDS_Ex) _sendRDS_Ex(true, false, 0, 0, 0, 0, 0, 0);
@@ -49,7 +53,13 @@ public:
     }
 
     // Sequential read always starts at register 0x0A: 6 registers = 12 bytes.
-    if (Wire.requestFrom(I2C_SEQ_EX, (uint8_t)12) != 12) return;
+    uint8_t got = Wire.requestFrom(I2C_SEQ_EX, (uint8_t)12);
+    if (got != 12) {
+      // Chip did not answer: drain what arrived and report "no RDS sync".
+      while (Wire.available()) Wire.read();
+      _report(false, false, 0, 0);
+      return;
+    }
     uint16_t regA = _read16_Ex();
     uint16_t regB = _read16_Ex();
     uint16_t block[4];
@@ -60,21 +70,38 @@ public:
     uint8_t blera = (regB >> 2) & 0x03;
     uint8_t blerb = regB & 0x03;
 
+    // Only remember a group the sketch will accept (block A/B error level
+    // below RDS_MAX_BLER_EX), so a clean repeat of a rejected group still
+    // counts as new data.
     bool changed = false;
-    if (rdsr) {
+    if (rdsr && blera < RDS_MAX_BLER_EX && blerb < RDS_MAX_BLER_EX) {
       for (uint8_t i = 0; i < 4; i++) {
         if (block[i] != _lastBlock[i]) { _lastBlock[i] = block[i]; changed = true; }
       }
     }
 
-    _sendRDS_Ex(rdsr && changed, rdss, blera, blerb,
-                _lastBlock[0], _lastBlock[1], _lastBlock[2], _lastBlock[3]);
+    _report(changed, rdss, blera, blerb);
   }
 
 private:
   static const uint8_t I2C_SEQ_EX = 0x10;  // RDA5807M sequential-access address
+  static const uint8_t RDS_MAX_BLER_EX = 2; // BLER 2 (3-5 errors) and up is rejected
   receiveRDSFunction_Ex _sendRDS_Ex;
   uint16_t _lastBlock[4] = {0, 0, 0, 0};
+  bool    _lastSync = false;
+  uint8_t _lastErrA = 0;
+  uint8_t _lastErrB = 0;
+
+  // Call back only on new data or a change in sync / error levels, so the
+  // sketch is not redrawing the display on every loop pass.
+  void _report(bool newData, bool sync, uint8_t errA, uint8_t errB) {
+    if (!newData && sync == _lastSync && errA == _lastErrA && errB == _lastErrB) return;
+    _lastSync = sync;
+    _lastErrA = errA;
+    _lastErrB = errB;
+    _sendRDS_Ex(newData, sync, errA, errB,
+                _lastBlock[0], _lastBlock[1], _lastBlock[2], _lastBlock[3]);
+  }
 
   static uint16_t _read16_Ex() {
     uint8_t hi = Wire.read();
