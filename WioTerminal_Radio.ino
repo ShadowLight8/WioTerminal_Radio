@@ -11,11 +11,12 @@
 #include <radio.h>
 #include <RDA5807M.h>
 #include <RDSParser.h>
+#include "RDA5807M_Ex.h" // Adds attachReceiveRDS_Ex / clearRDS_Ex with RDS sync and error bits
 
 // Global objects
 TFT_eSPI tft;
 static LCDBackLight backlight;
-RDA5807M radio;
+RDA5807M_Ex radio;
 RDSParser rds;
 
 void DisplayRDS(char *name) {
