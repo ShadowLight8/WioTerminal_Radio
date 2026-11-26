@@ -11,11 +11,12 @@
 #include <radio.h>
 #include <RDA5807M.h>
 #include <RDSParser.h>
+#include "RDA5807M_Ex.h" // Adds attachReceiveRDS_Ex / clearRDS_Ex with RDS sync and error bits
 
 // Global objects
 TFT_eSPI tft;
 static LCDBackLight backlight;
-RDA5807M radio;
+RDA5807M_Ex radio;
 RDSParser rds;
 
 void DisplayRDS(char *name) {
@@ -46,12 +47,12 @@ void RDS_process(bool rds_ready, bool rds_sync, uint8_t blockA_err, uint8_t bloc
   //gui_RDSSignal(blockA_err, blockB_err);
 
   gui_RDSSync(rds_sync); // Shows if RDS is generally present
-  if (rds_sync && rds_ready && blockA_err != 2 && blockB_err != 2)
+  if (rds_sync && rds_ready && blockA_err < 2 && blockB_err < 2)
     gui_RDSReady(rds_ready); // More like an RDS heartbeat indicator - While RDS is synced, only update on new rds_readys
   else if (!rds_sync)
     gui_RDSReady(0); // If not in sync, don't display
 
-  if (rds_ready && blockA_err != 2 && blockB_err != 2) { // RDS data ready and the errors a minimal
+  if (rds_ready && blockA_err < 2 && blockB_err < 2) { // RDS data ready and the errors a minimal
     //tft.print("G - ");
     //tft.print((block2 & 0xF000) >> 12);
     //tft.print(" AB - ");
